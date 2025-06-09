@@ -8,7 +8,7 @@ import os
 
 # --- CONFIGURACIÓN ---
 # <<< ¡ASEGÚRATE DE QUE ESTA RUTA APUNTE A TU MODELO DE CARACTERES!
-MODEL_PATH = 'runs/detect/yolov8_caracteres_kaggle/weights/best.pt'
+MODEL_PATH = 'PLACA_COLOMBIA.v9i.yolov11/runs/detect/train/weights/best.pt'
 MIN_CHARS_IN_PLATE = 5
 
 # --- Carga de Modelos ---
