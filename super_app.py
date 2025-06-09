@@ -1,39 +1,56 @@
-# super_app.py (Versión Simplificada - Solo Dashboard)
+# super_app.py (Versión de Diagnóstico de Rutas)
 
 import streamlit as st
-import numpy as np
-import cv2
 import os
 
-# Importamos la única función que necesitamos de nuestro motor
-from anpr_engine import process_image_for_dashboard
+st.set_page_config(layout="wide", page_title="Diagnóstico de Archivos")
 
-# --- Configuración de la Página ---
-st.set_page_config(layout="wide", page_title="Dashboard ANPR", page_icon="📈")
-
-# --- Título Principal ---
-st.title("📈 Dashboard de Análisis de Placas Vehiculares")
-st.write("Esta aplicación utiliza un modelo YOLOv8 para detectar caracteres y reconstruir el texto de la placa, mostrando todo el proceso.")
+st.title("🕵️‍♂️ Explorador de Archivos del Servidor de Streamlit")
+st.write(
+    "Esta herramienta nos ayudará a encontrar la ruta exacta de tu modelo 'best.pt' "
+    "y a diagnosticar por qué no se está cargando."
+)
 st.markdown("---")
 
-# --- Widget para Subir Archivos ---
-uploaded_file = st.file_uploader("Sube una imagen de un vehículo para generar el dashboard:", type=["jpg", "png", "jpeg"])
+# Mostramos el directorio de trabajo actual
+try:
+    cwd = os.getcwd()
+    st.header("Directorio de Trabajo Actual:")
+    st.code(cwd)
+except Exception as e:
+    st.error(f"No se pudo obtener el directorio de trabajo actual: {e}")
 
-if uploaded_file is not None:
-    # Convertir el archivo a una imagen que OpenCV pueda leer
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image_to_process = cv2.imdecode(file_bytes, 1)
+# Creamos un árbol de archivos y directorios para visualizar todo
+st.header("Estructura Completa de Carpetas del Proyecto:")
+st.warning("Buscando el archivo 'best.pt'...")
 
-    # Mostrar la imagen original como confirmación
-    st.image(image_to_process, channels="BGR", caption="Imagen Cargada", width=400)
+output_lines = []
+found_path = ""
+try:
+    for root, dirs, files in os.walk(".", topdown=True):
+        # Ignoramos carpetas de caché para una vista más limpia
+        dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('__')]
+        
+        level = root.replace('.', '').count(os.sep)
+        indent = " " * 4 * level
+        output_lines.append(f"{indent}{os.path.basename(root)}/")
+        
+        subindent = " " * 4 * (level + 1)
+        for f in files:
+            output_lines.append(f"{subindent}{f}")
+            # ¡Si encontramos el modelo, lo anunciamos!
+            if f == 'best.pt':
+                correct_path = os.path.join(root, f)
+                found_path = correct_path
+                
+    st.code('\n'.join(output_lines))
     
-    if st.button("Generar Dashboard de Análisis", use_container_width=True, type="primary"):
-        with st.spinner('Realizando análisis profundo...'):
-            # Llamar a nuestra única función que crea el dashboard completo
-            dashboard_image, detected_text = process_image_for_dashboard(image_to_process)
-        
-        st.success('¡Análisis Completado!')
-        
-        # Mostrar el dashboard final
-        st.image(dashboard_image, channels="BGR", caption="Dashboard de Resultados")
-        st.subheader(f"Texto Reconstruido: `{detected_text}`")
+    if found_path:
+        st.success("¡MODELO ENCONTRADO!")
+        st.subheader("La ruta correcta para tu MODEL_PATH es:")
+        st.code(f"MODEL_PATH = '{found_path}'")
+    else:
+        st.error("ERROR CRÍTICO: No se encontró el archivo 'best.pt' en ninguna carpeta. Asegúrate de que se haya subido correctamente a GitHub y que Git LFS esté funcionando.")
+
+except Exception as e:
+    st.error(f"Ocurrió un error al explorar los archivos: {e}")
