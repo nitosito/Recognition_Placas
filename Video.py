@@ -12,7 +12,7 @@ import time # Importamos la librería 'time' para el contador de FPS
 # --- CONFIGURACIÓN ---
 # ====================================================================================
 # <<< ¡REVISA ESTA RUTA! Debe apuntar al archivo .pt de tu modelo de CARACTERES.
-MODEL_PATH = 'C:/Users/hlcp2/OneDrive/Documents/DETECCION_CARACTERES/PLACA_COLOMBIA.v9i.yolov11/runs/detect/train/weights/best.pt'
+MODEL_PATH = 'PLACA_COLOMBIA.v9i.yolov11/runs/detect/train/weights/best.pt'
 
 # Para usar un archivo de video, pon la ruta: "videos/mi_video.mp4"
 # Para usar la cámara web en vivo, pon el número: 0

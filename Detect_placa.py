@@ -11,7 +11,7 @@ import re
 # --- CONFIGURACIÓN ---
 # ====================================================================================
 # <<< ¡REVISA ESTA RUTA! Debe apuntar al archivo .pt de tu modelo de CARACTERES.
-MODEL_PATH = 'C:/Users/hlcp2/OneDrive/Documents/DETECCION_CARACTERES/PLACA_COLOMBIA.v9i.yolov11/runs/detect/train/weights/best.pt'
+MODEL_PATH = 'PLACA_COLOMBIA.v9i.yolov11/runs/detect/train/weights/best.pt'
 MIN_CHARS_IN_PLATE = 5
 # ====================================================================================
 

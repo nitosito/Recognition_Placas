@@ -1,4 +1,4 @@
-# anpr_engine.py (Versión para Modelo Multi-Clase)
+# anpr_engine.py (Versión Final con Doble Funcionalidad)
 
 import cv2
 import numpy as np
@@ -6,83 +6,96 @@ from ultralytics import YOLO
 import re
 import os
 
-# --- Carga del Modelo ---
-print("Cargando modelo ANPR multi-clase...")
+# --- Carga de Modelos (Se hace una sola vez al iniciar) ---
+print("Cargando modelo ANPR (esto puede tardar un momento)...")
 try:
-    # <<< ¡ASEGÚRATE DE QUE ESTA RUTA APUNTE A TU MODELO MULTI-CLASE!
-    MODEL_PATH = 'C:/Users/hlcp2/OneDrive/Documents/DETECCION_CARACTERES/PLACA_COLOMBIA.v9i.yolov11/runs/detect/train/weights/best.pt' 
+    # <<< ¡ASEGÚRATE DE QUE ESTA RUTA APUNTE A TU MODELO DE CARACTERES!
+    MODEL_PATH = 'PLACA_COLOMBIA.v9i.yolov11/runs/detect/train/weights/best.pt'
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"El modelo no se encuentra en: {MODEL_PATH}")
+    
     detector = YOLO(MODEL_PATH)
-    print("Modelo cargado exitosamente.")
+    print("Modelo de caracteres cargado exitosamente.")
 except Exception as e:
     print(f"Error crítico al cargar el modelo: {e}")
     detector = None
 
-def format_plate_text_multiclass(plate_text_raw):
-    """Aplica el formato ABC-123 a la placa reconstruida."""
-    match = re.match(r'^([A-Z]{3})([0-9]{3})$', plate_text_raw)
-    if match:
-        return f"{match.group(1)}-{match.group(2)}"
-    return plate_text_raw
+def resize_for_display(image, width, height):
+    """Redimensiona una imagen a un tamaño fijo para el dashboard."""
+    if len(image.shape) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    return cv2.resize(image, (width, height))
 
-def process_image_multiclass(image_object):
-    """
-    Toma una imagen, la procesa con el modelo multi-clase, y devuelve
-    la imagen con los resultados dibujados y el texto de la placa.
-    """
-    if not detector:
-        raise RuntimeError("El modelo no se cargó correctamente.")
+def reconstruct_and_format_plate(detections, class_names):
+    """Toma detecciones de caracteres y devuelve el texto formateado y su recuadro."""
+    if len(detections) < 5: return None, None
+    detections.sort(key=lambda d: d[0])
+    raw_text = "".join([class_names[int(d[5])] for d in detections])
+    match = re.match(r'^([A-Z]{3})([0-9]{3})$', raw_text)
+    formatted_text = f"{match.group(1)}-{match.group(2)}" if match else raw_text
+    x1, y1 = min(d[0] for d in detections), min(d[1] for d in detections)
+    x2, y2 = max(d[2] for d in detections), max(d[3] for d in detections)
+    return formatted_text, (int(x1), int(y1), int(x2), int(y2))
 
-    result_image = image_object.copy()
-    final_detected_text = "No se detecto placa"
-
-    # Ejecutar la inferencia
-    results = detector(image_object, verbose=False)[0]
-    
-    # Separar las detecciones en placas y caracteres
-    detections = results.boxes.data.tolist()
-    class_names = results.names
-    
-    plates = [d for d in detections if class_names[int(d[5])] == 'placa']
-    characters = [d for d in detections if class_names[int(d[5])] != 'placa']
-
-    # Procesar cada placa encontrada
-    for plate_detection in plates:
-        x1_p, y1_p, x2_p, y2_p, score_p, _ = plate_detection
+# =============================================================================
+# --- FUNCIÓN 1: LÓGICA PARA EL DASHBOARD DE ANÁLISIS DE IMAGEN ---
+# =============================================================================
+def process_image_for_dashboard(image_object):
+    if not detector: raise RuntimeError("El modelo no se cargó correctamente.")
         
-        if score_p < 0.5: continue # Ignorar placas con baja confianza
+    original_image = image_object
+    result_image = original_image.copy()
+    
+    results = detector(original_image, verbose=False)[0]
+    detected_text, plate_box = reconstruct_and_format_plate(results.boxes.data.tolist(), results.names)
+    
+    plate_crop_for_display = np.zeros((80, 200, 3), dtype=np.uint8) 
+    if plate_box:
+        x1, y1, x2, y2 = plate_box
+        cv2.rectangle(result_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+        plate_crop = original_image[y1:y2, x1:x2]
+        if plate_crop.size > 0: plate_crop_for_display = plate_crop.copy()
+    else:
+        detected_text = "No se pudo reconstruir"
 
-        chars_in_plate = []
-        # Encontrar qué caracteres están dentro de esta placa
-        for char_detection in characters:
-            x1_c, y1_c, x2_c, y2_c, score_c, class_id_c = char_detection
-            # Calcular el centro del caracter
-            center_x_c = (x1_c + x2_c) / 2
-            center_y_c = (y1_c + y2_c) / 2
-            
-            # Si el centro del caracter está dentro de la caja de la placa
-            if x1_p < center_x_c < x2_p and y1_p < center_y_c < y2_p:
-                chars_in_plate.append({
-                    'class': class_names[int(class_id_c)],
-                    'x_center': center_x_c
-                })
-        
-        if len(chars_in_plate) >= 5: # Si encontramos suficientes caracteres
-            # Ordenar los caracteres por su posición horizontal
-            chars_in_plate.sort(key=lambda c: c['x_center'])
-            
-            # Ensamblar y formatear el texto
-            raw_text = "".join([c['class'] for c in chars_in_plate])
-            final_detected_text = format_plate_text_multiclass(raw_text)
-            
-            # Dibujar el resultado en la imagen
-            cv2.rectangle(result_image, (int(x1_p), int(y1_p)), (int(x2_p), int(y2_p)), (0, 100, 0), 3)
-            (text_width, text_height), _ = cv2.getTextSize(final_detected_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
-            cv2.rectangle(result_image, (int(x1_p), int(y1_p) - text_height - 15), (int(x1_p) + text_width, int(y1_p) - 5), (0, 100, 0), cv2.FILLED)
-            cv2.putText(result_image, final_detected_text, (int(x1_p), int(y1_p) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-            
-            # Procesamos solo la primera placa con alta confianza
-            break 
+    gray_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
+    canny_edges = cv2.Canny(gray_image, 100, 200)
+    _, background_removed_sim = cv2.threshold(gray_image, 128, 255, cv2.THRESH_BINARY)
+    
+    disp_width, disp_height, margin = 400, 300, 30
+    img_list = [resize_for_display(img, disp_width, disp_height) for img in [original_image, gray_image, background_removed_sim, canny_edges, result_image]]
+    img_plate_disp = resize_for_display(plate_crop_for_display, 200, 80)
 
-    return result_image, final_detected_text
+    canvas_height = disp_height * 2 + margin * 4
+    canvas_width = disp_width * 3 + margin * 4 
+    canvas = np.full((canvas_height, canvas_width, 3), (48, 48, 48), dtype=np.uint8)
+    
+    # Pegado de elementos en el Canvas... (lógica de dibujo)
+    cv2.putText(canvas, "Proceso", (margin, margin), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    y_pos = margin * 2; canvas[y_pos:y_pos+disp_height, margin:margin+disp_width] = img_list[0]; cv2.putText(canvas, "Imagen cargada", (margin, y_pos+disp_height+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+    y_pos += disp_height + margin; canvas[y_pos:y_pos+disp_height, margin:margin+disp_width] = img_list[1]; cv2.putText(canvas, "Imagen escala de grises", (margin, y_pos+disp_height+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+    x_pos_col2 = disp_width + margin * 2; y_pos = margin * 2; canvas[y_pos:y_pos+disp_height, x_pos_col2:x_pos_col2+disp_width] = img_list[2]; cv2.putText(canvas, "Imagen con fondo eliminado (sim)", (x_pos_col2, y_pos+disp_height+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+    y_pos += disp_height + margin; canvas[y_pos:y_pos+disp_height, x_pos_col2:x_pos_col2+disp_width] = img_list[3]; cv2.putText(canvas, "Imagen con solo bordes", (x_pos_col2, y_pos+disp_height+20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+    x_pos_col3 = disp_width * 2 + margin * 3; cv2.putText(canvas, "Resultado", (x_pos_col3, margin), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+    y_pos = margin * 2; canvas[y_pos:y_pos+disp_height, x_pos_col3:x_pos_col3+disp_width] = img_list[4]
+    y_pos += disp_height + margin; cv2.putText(canvas, "Placa reconstruida", (x_pos_col3, y_pos-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1); canvas[y_pos:y_pos+80, x_pos_col3:x_pos_col3+200] = img_plate_disp
+    y_pos += 80 + margin; cv2.putText(canvas, "Texto detectado:", (x_pos_col3, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 1); cv2.putText(canvas, detected_text, (x_pos_col3, y_pos+30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,128), 2)
+    
+    return canvas
+
+# =============================================================================
+# --- FUNCIÓN 2: LÓGICA PARA EL VIDEO EN TIEMPO REAL ---
+# =============================================================================
+def process_frame_for_realtime(frame):
+    """Toma un fotograma de video y devuelve el fotograma con los resultados dibujados."""
+    results = detector(frame, verbose=False)[0]
+    plate_text, plate_box = reconstruct_and_format_plate(results.boxes.data.tolist(), results.names)
+    
+    if plate_text and plate_box:
+        x1, y1, x2, y2 = plate_box
+        (text_width, text_height), _ = cv2.getTextSize(plate_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+        cv2.rectangle(frame, (x1, y1 - text_height - 15), (x1 + text_width, y1 - 5), (0, 100, 0), cv2.FILLED)
+        cv2.putText(frame, plate_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+
+    return frame
